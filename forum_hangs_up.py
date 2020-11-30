@@ -12,24 +12,20 @@ import logging
 
 async def login(session: aiohttp.ClientSession, username: str, password: str):
     # get login page
-    login_url = URL + '/member.php?mod=logging&action=login&infloat=yes&handlekey=login&inajax=1&ajaxtarget=fwin_content_login'
+    login_url = URL + '/member.php?mod=logging&action=login&infloat=yes' \
+                      '&handlekey=login&inajax=1&ajaxtarget=fwin_content_login'
     async with session.get(login_url, headers=HEADERS) as response:
         login_res = await response.text()
         cookies = response.cookies
     # handle login page
     soup = BeautifulSoup(et.fromstring(login_res).text, features="html.parser")
     seccode_id = soup.find(name='span', id=re.compile('seccode_\\w+'))['id'].split('_')[1]
-    login_id = soup.find(name='form', class_='cl', id=re.compile('loginform_\\w+'))['id'].split('_')[
-        1]
+    login_id = soup.find(name='form', class_='cl', id=re.compile('loginform_\\w+'))['id'].split('_')[1]
     from_hash = soup.find(name='input', attrs={"name": 'formhash', "type": "hidden"})['value']
 
     # get img url
-    seccode_url = URL + '/misc.php?mod=seccode&action=update&idhash={}&{}&modid=member::logging'.format(seccode_id,
-                                                                                                        str(
-                                                                                                            random.uniform(
-                                                                                                                0,
-                                                                                                                1))[
-                                                                                                        :-1])
+    seccode_url = URL + '/misc.php?mod=seccode&action=update&' \
+                        'idhash={}&{}&modid=member::logging'.format(seccode_id, str(random.uniform(0, 1))[:-1])
     async with session.get(seccode_url, headers=HEADERS, cookies=cookies) as response:
         seccode_res = await response.text()
         cookies.update(response.cookies)
@@ -164,6 +160,7 @@ async def main(username: str, password: str):
             await get_daily_task(session, cookies, 2)
             await asyncio.sleep(20)
             await clock_in(session, cookies)
+            await asyncio.sleep(600)
 
 
 if __name__ == '__main__':
