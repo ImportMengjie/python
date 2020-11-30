@@ -1,6 +1,5 @@
 import asyncio
 import aiohttp
-import aiofiles
 import xml.etree.ElementTree as et
 from bs4 import BeautifulSoup
 import re
@@ -46,8 +45,6 @@ async def login(session: aiohttp.ClientSession, username: str, password: str):
     async with session.get(seccode_img_url, headers=headers, cookies=cookies) as response:
         cookies.update(response.cookies)
         seccode_img = await response.read()
-    async with aiofiles.open('1.png', 'wb') as f:
-        await f.write(seccode_img)
     plt.imshow(PIL.Image.open(io.BytesIO(seccode_img)))
     plt.show()
     code = input('input code：')
@@ -62,7 +59,7 @@ async def login(session: aiohttp.ClientSession, username: str, password: str):
     async with session.get(code_verify_url, headers=headers, cookies=cookies) as response:
         code_verify_res = await response.text()
         cookies.update(response.cookies)
-        print('code verify res:', et.fromstring(code_verify_res).text)
+        logging.warning('code verify res:{}'.format(et.fromstring(code_verify_res).text))
 
     # login
     login_post_url = URL + '/member.php?mod=logging&action=login&loginsubmit=yes&handlekey=login&' \
@@ -88,7 +85,7 @@ async def login(session: aiohttp.ClientSession, username: str, password: str):
     headers.update(HEADERS)
     async with session.post(login_post_url, data=login_data, headers=headers, cookies=cookies) as response:
         login_post_res = await response.text()
-        print('login res:', et.fromstring(login_post_res).text)
+        logging.warning('login res: {}'.format(et.fromstring(login_post_res).text))
         cookies.update(response.cookies)
     return cookies
 
@@ -109,6 +106,7 @@ async def get_level_gift(session: aiohttp.ClientSession, cookies):
                 logging.warning('get gift:{}, result:{}'.format(gift_info, get_gift_status))
 
     async with session.get(level_gift_url_online, headers=HEADERS, cookies=cookies) as response:
+        cookies.update(response.cookies)
         level_gift_online_res = await response.text()
     await get_gift(BeautifulSoup(level_gift_online_res, features="html.parser"), 'table', 'awardcon')
 
@@ -127,10 +125,31 @@ async def get_daily_task(session: aiohttp.ClientSession, cookies, id: int):
     soup = BeautifulSoup(task_view_res, features="html.parser")
     task_url = soup.find(name='img', src=True, alt='立即申请')
     if task_url:
-        task_url = URL+'/'+task_url.parent['href']
+        task_url = URL + '/' + task_url.parent['href']
         async with session.get(task_url, headers=HEADERS, cookies=cookies) as response:
             cookies.update(response.cookies)
             logging.warning('done task:{}, result:{}'.format(id, response.status))
+
+
+async def clock_in(session: aiohttp.ClientSession, cookies):
+    logging.info('clock in')
+    clock_in_view_url = URL + '/plugin.php?id=dsu_paulsign:sign'
+    async with session.get(clock_in_view_url, headers=HEADERS, cookies=cookies) as response:
+        cookies.update(response.cookies)
+        clock_in_view_res = await response.text()
+    soup = BeautifulSoup(clock_in_view_res, features="html.parser")
+    clock_in_url = soup.find(name='form', attrs={'name': 'qiandao', 'method': 'post', 'action': True})
+    if clock_in_url:
+        clock_in_url = URL + '/' + clock_in_url['action']
+        form_hash = soup.find(name='input', attrs={'name': 'formhash', 'type': 'hidden', 'value': True})['value']
+        data = {
+            'formhash': form_hash,
+            'qdxq': 'kx'
+        }
+        async with session.post(clock_in_url, data=data, headers=HEADERS, cookies=cookies) as response:
+            cookies.update(response.cookies)
+            clock_in_res = await response.text()
+        logging.info('clock in res:{}'.format(BeautifulSoup(clock_in_res).find(name='div', class_='c').text))
 
 
 async def main(username: str, password: str):
@@ -143,6 +162,8 @@ async def main(username: str, password: str):
             await get_daily_task(session, cookies, 1)
             await asyncio.sleep(10)
             await get_daily_task(session, cookies, 2)
+            await asyncio.sleep(20)
+            await clock_in(session, cookies)
 
 
 if __name__ == '__main__':
@@ -165,7 +186,7 @@ if __name__ == '__main__':
         "Accept-Language": "zh-CN,zh;q=0.9,zh-TW;q=0.8"
     }
 
-    logging.basicConfig(level=args.log_level)
+    logging.basicConfig(level=args.log_level, format='%(asctime)s-%(levelname)s-%(message)s')
     loop = asyncio.get_event_loop()
     result = loop.run_until_complete(main(args.username, args.password))
     loop.close()
