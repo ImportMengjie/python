@@ -106,7 +106,7 @@ async def get_level_gift(session: aiohttp.ClientSession, cookies):
         level_gift_online_res = await response.text()
     await get_gift(BeautifulSoup(level_gift_online_res, features="html.parser"), 'table', 'awardcon')
 
-    async with session.get(level_gift_url_online + '&acttype=1', headers=HEADERS, cookies=cookies) as response:
+    async with session.get(level_gift_url_online + '&acttype=2', headers=HEADERS, cookies=cookies) as response:
         cookies.update(response.cookies)
         level_gift_daily_res = await response.text()
     await get_gift(BeautifulSoup(level_gift_daily_res, features="html.parser"), 'table', 'awardcon')
@@ -145,7 +145,8 @@ async def clock_in(session: aiohttp.ClientSession, cookies):
         async with session.post(clock_in_url, data=data, headers=HEADERS, cookies=cookies) as response:
             cookies.update(response.cookies)
             clock_in_res = await response.text()
-        logging.info('clock in res:{}'.format(BeautifulSoup(clock_in_res).find(name='div', class_='c').text))
+        logging.info('clock in res:{}'.format(BeautifulSoup(clock_in_res, features="html.parser").
+                                              find(name='div', class_='c').text))
 
 
 async def main(username: str, password: str):
