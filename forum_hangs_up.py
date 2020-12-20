@@ -15,7 +15,9 @@ import io
 import matplotlib.pyplot as plt
 import logging
 
-random_uniform = lambda: str(random.uniform(0, 1))[:-1]
+
+def random_uniform():
+    return str(random.uniform(0, 1))[:-1]
 
 
 async def login(session: aiohttp.ClientSession, user_config: dict):
@@ -33,7 +35,7 @@ async def login(session: aiohttp.ClientSession, user_config: dict):
 
     # get img url
     seccode_url = URL + '/misc.php?mod=seccode&action=update&' \
-                        'idhash={}&{}&modid=member::logging'.format(seccode_id, str(random.uniform(0, 1))[:-1])
+                        'idhash={}&{}&modid=member::logging'.format(seccode_id, random_uniform())
     async with session.get(seccode_url, headers=HEADERS, cookies=cookies) as response:
         seccode_res = await response.text()
         cookies.update(response.cookies)
@@ -145,14 +147,14 @@ async def lucky_egg_draw(session: aiohttp.ClientSession, cookies, username: str)
         draw_egg_page_res = await response.text()
     soup = BeautifulSoup(draw_egg_page_res, features="html.parser")
     from_hash = soup.find(name='input', attrs={"name": 'formhash', "type": "hidden"})['value']
-    draw_egg_num_url = URL + "/plugin.php?id=levegg&m=2&fh={}&{}".format(from_hash, str(random.uniform(0, 1))[:-1])
+    draw_egg_num_url = URL + "/plugin.php?id=levegg&m=2&fh={}&{}".format(from_hash, random_uniform())
     async with session.get(draw_egg_num_url, headers=HEADERS, cookies=cookies) as response:
         cookies.update(response.cookies)
         draw_egg_times = json.loads(await response.text())
     logging.warning("{} egg times: {}".format(username, draw_egg_times))
     for egg_name, egg_num in draw_egg_times.items():
         for _ in range(egg_num):
-            draw_egg_get_url = URL + "/plugin.php?id=levegg&m=1&{}&egg={}&fh={}".format(random_uniform, egg_name[-1],
+            draw_egg_get_url = URL + "/plugin.php?id=levegg&m=1&{}&egg={}&fh={}".format(random_uniform(), egg_name[-1],
                                                                                         from_hash)
             async with session.get(draw_egg_get_url, headers=HEADERS, cookies=cookies) as response:
                 cookies.update(cookies)
@@ -177,20 +179,19 @@ async def lucky_wheel_draw(session: aiohttp.ClientSession, cookies, username: st
         cookies.update(response.cookies)
         draw_wheel_page_res = await response.text()
     async with session.get(URL + '/plugin.php?id=levaward:award&doingid=1&mobile=no&hdr=&{}&hook=1&pg=1'.format(
-            str(random.uniform(0, 1))[:-1]), headers=HEADERS, cookies=cookies) as response:
+            random_uniform()), headers=HEADERS, cookies=cookies) as response:
         cookies.update(response.cookies)
     soup = BeautifulSoup(draw_wheel_page_res, features="html.parser")
     from_hash = soup.find(name='input', attrs={"name": 'formhash', "type": "hidden"})['value']
-    draw_wheel_num_url = URL + "/plugin.php?id=levaward:l&fh={}&m=_awardnum.1&{}".format(from_hash,
-                                                                                         str(random.uniform(0, 1))[:-1])
+    draw_wheel_num_url = URL + "/plugin.php?id=levaward:l&fh={}&m=_awardnum.1&{}".format(from_hash, random_uniform())
     async with session.get(draw_wheel_num_url, headers=HEADERS, cookies=cookies) as response:
         cookies.update(response.cookies)
         draw_wheel_times = int(await response.text())
     if draw_wheel_times > 0:
         total_points, total_coupon = 0, 0
         logging.warning("{} wheel draw num: {}".format(username, draw_wheel_times))
-        draw_wheel_url = URL + "/plugin.php?id=levaward:l&fh={}&m=_openaward.1&ajax&_t={}".format(from_hash, str(
-            random.uniform(0, 1))[:-1])
+        draw_wheel_url = URL + "/plugin.php?id=levaward:l&fh={}&m=_openaward.1&ajax&_t={}".format(from_hash,
+                                                                                                  random_uniform())
         while draw_wheel_times > 0:
             async with session.get(draw_wheel_url, headers=HEADERS, cookies=cookies) as response:
                 cookies.update(cookies)
@@ -208,9 +209,7 @@ async def lucky_wheel_draw(session: aiohttp.ClientSession, cookies, username: st
             await asyncio.sleep(8)
         logging.error("{} wheel total get points:{}, coupon:{}".format(username, total_points, total_coupon))
     else:
-        logging.info("{} wheel draw num=0".format(username))
-
-    pass
+        logging.info("{} wheel draw num == 0".format(username))
 
 
 async def clock_in(session: aiohttp.ClientSession, cookies, username: str):
@@ -249,16 +248,17 @@ async def hang_up(user_config: dict, cookies: SimpleCookie):
         while True:
             await clock_in(session, cookies, username)
             await asyncio.sleep(10)
-            if loop_times % 100 == 0:
-                await lucky_egg_draw(session, cookies, username)
-                await asyncio.sleep(10)
-                await lucky_wheel_draw(session, cookies, username)
-                await asyncio.sleep(10)
             await get_level_gift(session, cookies, username)
             await asyncio.sleep(10)
             await get_daily_task(session, cookies, 1, username)
             await asyncio.sleep(10)
             await get_daily_task(session, cookies, 2, username)
+            if loop_times % 100 == 0:
+                await asyncio.sleep(10)
+                await lucky_egg_draw(session, cookies, username)
+                await asyncio.sleep(10)
+                await lucky_wheel_draw(session, cookies, username)
+                await asyncio.sleep(10)
             await asyncio.sleep(600)
             loop_times += 1
 
@@ -294,12 +294,11 @@ if __name__ == '__main__':
     parser.add_argument('-l', '--log_level', help='log level=> 10:debug, 20:info, 30:warn, 40:error', type=int,
                         default=20)
     args = parser.parse_args()
-    if args.address:
-        URL = ("" if 'http://' in args.address else 'http://') + (
-            "" if 'www.' in args.address else 'www.') + args.address
-    else:
+    if not args.address:
         with open(args.config, 'r') as fp:
-            URL = json.load(fp)['url']
+            args.address = URL = json.load(fp)['url']
+    URL = ("" if 'http://' in args.address else 'http://') + (
+        "" if 'www.' in args.address else 'www.') + args.address
     HEADERS = {
         'User-Agent': r'Mozilla/5.0 (Macintosh; Intel Mac OS X 11_0_0) AppleWebKit/537.36 (KHTML, like Gecko) '
                       r'Chrome/86.0.4240.198 Safari/537.36',
