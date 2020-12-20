@@ -15,8 +15,10 @@ import io
 import matplotlib.pyplot as plt
 import logging
 
+random_uniform = lambda: str(random.uniform(0, 1))[:-1]
 
-async def login(session: aiohttp.ClientSession, username: str, password: str):
+
+async def login(session: aiohttp.ClientSession, user_config: dict):
     # get login page
     login_url = URL + '/member.php?mod=logging&action=login&infloat=yes' \
                       '&handlekey=login&inajax=1&ajaxtarget=fwin_content_login'
@@ -48,10 +50,11 @@ async def login(session: aiohttp.ClientSession, username: str, password: str):
         cookies.update(response.cookies)
         seccode_img = await response.read()
     plt.imshow(PIL.Image.open(io.BytesIO(seccode_img)))
+    plt.title(user_config['username'])
     plt.show()
 
     while True:
-        code = input('{} input code：'.format(username))
+        code = input('{} input code：'.format(user_config['username']))
         # verify code
         code_verify_url = URL + '/misc.php?mod=seccode&action=check&inajax=1&modid=member::logging&' \
                                 'idhash={}&secverify={}'.format(seccode_id, code)
@@ -71,8 +74,6 @@ async def login(session: aiohttp.ClientSession, username: str, password: str):
                            'loginhash={}&inajax=1'.format(login_id)
     login_data = {
         "formhash": from_hash,
-        'username': username,
-        'password': password,
         'loginfield': 'username',
         'questionid': '0',
         'answer': '',
@@ -81,6 +82,7 @@ async def login(session: aiohttp.ClientSession, username: str, password: str):
         'seccodeverify': code,
         'referer': URL + '/forum.php'
     }
+    login_data.update(user_config)
     headers = {
         "Cache-Control": "max-age=0",
         "Content-Type": "application/x-www-form-urlencoded",
@@ -136,6 +138,81 @@ async def get_daily_task(session: aiohttp.ClientSession, cookies, id: int, usern
             logging.warning('{} done task:{}, result:{}'.format(username, id, response.status))
 
 
+async def lucky_egg_draw(session: aiohttp.ClientSession, cookies, username: str):
+    draw_egg_page_url = URL + "/plugin.php?id=levegg:levegg"
+    async with session.get(draw_egg_page_url, headers=HEADERS, cookies=cookies) as response:
+        cookies.update(response.cookies)
+        draw_egg_page_res = await response.text()
+    soup = BeautifulSoup(draw_egg_page_res, features="html.parser")
+    from_hash = soup.find(name='input', attrs={"name": 'formhash', "type": "hidden"})['value']
+    draw_egg_num_url = URL + "/plugin.php?id=levegg&m=2&fh={}&{}".format(from_hash, str(random.uniform(0, 1))[:-1])
+    async with session.get(draw_egg_num_url, headers=HEADERS, cookies=cookies) as response:
+        cookies.update(response.cookies)
+        draw_egg_times = json.loads(await response.text())
+    logging.warning("{} egg times: {}".format(username, draw_egg_times))
+    for egg_name, egg_num in draw_egg_times.items():
+        for _ in range(egg_num):
+            draw_egg_get_url = URL + "/plugin.php?id=levegg&m=1&{}&egg={}&fh={}".format(random_uniform, egg_name[-1],
+                                                                                        from_hash)
+            async with session.get(draw_egg_get_url, headers=HEADERS, cookies=cookies) as response:
+                cookies.update(cookies)
+                draw_egg_get_res = await response.text()
+            logging.warning("{} get {} res: {}".format(username, egg_name, draw_egg_get_res))
+            await asyncio.sleep(10)
+
+
+async def lucky_wheel_draw(session: aiohttp.ClientSession, cookies, username: str):
+    wheel_award_map = {
+        1: ("Nothing", 0, 0),
+        2: ("10积分", 10, 0),
+        5: ("100积分", 100, 0),
+        7: ("500积分", 500, 0),
+        9: ("one more times", 0, 0),
+        4: ("50积分", 50, 0),
+        8: ("1000积分", 1000, 0),
+        11: ("50奖券", 0, 50)
+    }
+    draw_wheel_page_url = URL + "/plugin.php?id=levaward:award&doingid=1"
+    async with session.get(draw_wheel_page_url, headers=HEADERS, cookies=cookies) as response:
+        cookies.update(response.cookies)
+        draw_wheel_page_res = await response.text()
+    async with session.get(URL + '/plugin.php?id=levaward:award&doingid=1&mobile=no&hdr=&{}&hook=1&pg=1'.format(
+            str(random.uniform(0, 1))[:-1]), headers=HEADERS, cookies=cookies) as response:
+        cookies.update(response.cookies)
+    soup = BeautifulSoup(draw_wheel_page_res, features="html.parser")
+    from_hash = soup.find(name='input', attrs={"name": 'formhash', "type": "hidden"})['value']
+    draw_wheel_num_url = URL + "/plugin.php?id=levaward:l&fh={}&m=_awardnum.1&{}".format(from_hash,
+                                                                                         str(random.uniform(0, 1))[:-1])
+    async with session.get(draw_wheel_num_url, headers=HEADERS, cookies=cookies) as response:
+        cookies.update(response.cookies)
+        draw_wheel_times = int(await response.text())
+    if draw_wheel_times > 0:
+        total_points, total_coupon = 0, 0
+        logging.warning("{} wheel draw num: {}".format(username, draw_wheel_times))
+        draw_wheel_url = URL + "/plugin.php?id=levaward:l&fh={}&m=_openaward.1&ajax&_t={}".format(from_hash, str(
+            random.uniform(0, 1))[:-1])
+        while draw_wheel_times > 0:
+            async with session.get(draw_wheel_url, headers=HEADERS, cookies=cookies) as response:
+                cookies.update(cookies)
+                award_number = int(await response.text())
+            if award_number != 9:
+                draw_wheel_times -= 1
+            award_data = wheel_award_map.get(award_number, ("error", 0, 0))
+            logging.warning("{} wheel get num:{} {} point:{}, coupon:{}, left times:{}".format(username, award_number,
+                                                                                               award_data[0],
+                                                                                               award_data[1],
+                                                                                               award_data[2],
+                                                                                               draw_wheel_times))
+            total_points += award_data[1]
+            total_coupon += award_data[2]
+            await asyncio.sleep(8)
+        logging.error("{} wheel total get points:{}, coupon:{}".format(username, total_points, total_coupon))
+    else:
+        logging.info("{} wheel draw num=0".format(username))
+
+    pass
+
+
 async def clock_in(session: aiohttp.ClientSession, cookies, username: str):
     logging.info('{} clock in'.format(username))
     clock_in_view_url = URL + '/plugin.php?id=dsu_paulsign:sign'
@@ -158,24 +235,32 @@ async def clock_in(session: aiohttp.ClientSession, cookies, username: str):
                                                  find(name='div', class_='c').text))
 
 
-async def hang_up(username: str, password: str, cookies: SimpleCookie):
+async def hang_up(user_config: dict, cookies: SimpleCookie):
+    username = user_config['username']
     async with aiohttp.ClientSession() as session:
         if not cookies:
-            cookies = await login(session, username, password)
+            cookies = await login(session, user_config)
         async with session.get(URL + "/plugin.php?id=dsu_paulsign:sign", headers=HEADERS, cookies=cookies) as response:
             cookies.update(response.cookies)
             if username not in (await response.text()):
-                cookies = await login(session, username, password)
+                cookies = await login(session, user_config)
 
+        loop_times = 0
         while True:
+            await clock_in(session, cookies, username)
+            await asyncio.sleep(10)
+            if loop_times % 100 == 0:
+                await lucky_egg_draw(session, cookies, username)
+                await asyncio.sleep(10)
+                await lucky_wheel_draw(session, cookies, username)
+                await asyncio.sleep(10)
             await get_level_gift(session, cookies, username)
             await asyncio.sleep(10)
             await get_daily_task(session, cookies, 1, username)
             await asyncio.sleep(10)
             await get_daily_task(session, cookies, 2, username)
-            await asyncio.sleep(10)
-            await clock_in(session, cookies, username)
             await asyncio.sleep(600)
+            loop_times += 1
 
 
 async def main(config_path: str, reload: bool):
@@ -188,9 +273,10 @@ async def main(config_path: str, reload: bool):
         if not data['cookies'].get(account['username']) or reload:
             async with aiohttp.ClientSession() as session:
                 data['cookies'][account['username']] = base64.b64encode(
-                    pickle.dumps(await login(session, account['username'], account['password']))).decode()
-        tasks.append(asyncio.create_task(hang_up(account['username'], account['password'], pickle.loads(
-            base64.b64decode(data['cookies'].get(account['username']))))))
+                    pickle.dumps(await login(session, account))).decode()
+        tasks.append(asyncio.create_task(hang_up(account,
+                                                 pickle.loads(
+                                                     base64.b64decode(data['cookies'].get(account['username']))))))
     async with aiofiles.open(config_path, 'w') as fp:
         await fp.write(json.dumps(data, indent=4))
     await asyncio.gather(*tasks)
@@ -226,7 +312,7 @@ if __name__ == '__main__':
     logging.basicConfig(level=args.log_level, format='%(asctime)s-%(levelname)s-%(message)s')
     loop = asyncio.get_event_loop()
     if args.address and args.username and args.password:
-        result = loop.run_until_complete(hang_up(args.username, args.password, None))
+        result = loop.run_until_complete(hang_up({'username': args.username, 'password': args.password}, None))
     elif args.config:
         result = loop.run_until_complete(main(args.config, args.reload))
     loop.close()
