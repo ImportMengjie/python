@@ -119,7 +119,14 @@ async def get_level_gift(session: aiohttp.ClientSession, cookies, username: str)
         level_gift_online_res = await response.text()
     await get_gift(BeautifulSoup(level_gift_online_res, features="html.parser"), 'table', 'awardcon')
 
+    await asyncio.sleep(10)
     async with session.get(level_gift_url_online + '&acttype=2', headers=HEADERS, cookies=cookies) as response:
+        cookies.update(response.cookies)
+        level_gift_daily_res = await response.text()
+    await get_gift(BeautifulSoup(level_gift_daily_res, features="html.parser"), 'table', 'awardcon')
+
+    await asyncio.sleep(10)
+    async with session.get(level_gift_url_online + '&acttype=3', headers=HEADERS, cookies=cookies) as response:
         cookies.update(response.cookies)
         level_gift_daily_res = await response.text()
     await get_gift(BeautifulSoup(level_gift_daily_res, features="html.parser"), 'table', 'awardcon')
@@ -212,6 +219,26 @@ async def lucky_wheel_draw(session: aiohttp.ClientSession, cookies, username: st
         logging.info("{} wheel draw num == 0".format(username))
 
 
+async def handle_monthly_card(session: aiohttp.ClientSession, cookies, username: str):
+    logging.info('{} handle monthly card'.format(username))
+    monthly_card_view_url = URL + '/plugin.php?id=yueka'
+    async with session.get(monthly_card_view_url, headers=HEADERS, cookies=cookies) as response:
+        cookies.update(response.cookies)
+        monthly_card_view_res = await response.text()
+    soup = BeautifulSoup(monthly_card_view_res, features="html.parser")
+    monthly_card_form = soup.find(name='form', attrs={'name': 'form1', 'method': 'post', 'action': True})
+    if monthly_card_form:
+        monthly_card_url = URL + '/' + monthly_card_form['action']
+        form_hash = monthly_card_form.findChild(name='input')['value']
+        async with session.post(monthly_card_url, data={'formhash': form_hash}, headers=HEADERS,
+                                cookies=cookies) as response:
+            cookies.update(response.cookies)
+            monthly_card_res = await response.text()
+        logging.warning(
+            '{} get monthly card {}, result:{}'.format(username, monthly_card_form.text.strip(),
+                                                       monthly_card_res.strip()[:20]))
+
+
 async def clock_in(session: aiohttp.ClientSession, cookies, username: str):
     logging.info('{} clock in'.format(username))
     clock_in_view_url = URL + '/plugin.php?id=dsu_paulsign:sign'
@@ -253,12 +280,13 @@ async def hang_up(user_config: dict, cookies: SimpleCookie):
             await get_daily_task(session, cookies, 1, username)
             await asyncio.sleep(10)
             await get_daily_task(session, cookies, 2, username)
-            if loop_times % 100 == 0:
+            if loop_times % 30 == 0:
                 await asyncio.sleep(10)
                 await lucky_egg_draw(session, cookies, username)
                 await asyncio.sleep(10)
                 await lucky_wheel_draw(session, cookies, username)
                 await asyncio.sleep(10)
+                await handle_monthly_card(session, cookies, username)
             await asyncio.sleep(600)
             loop_times += 1
 
@@ -267,6 +295,7 @@ async def main(config_path: str, reload: bool):
     async with aiofiles.open(config_path) as fp:
         data = json.loads(await fp.read())
     tasks = []
+    tasks_parm = []
     if not data.get('cookies'):
         data['cookies'] = {}
     for account in data["accounts"]:
@@ -274,11 +303,11 @@ async def main(config_path: str, reload: bool):
             async with aiohttp.ClientSession() as session:
                 data['cookies'][account['username']] = base64.b64encode(
                     pickle.dumps(await login(session, account))).decode()
-        tasks.append(asyncio.create_task(hang_up(account,
-                                                 pickle.loads(
-                                                     base64.b64decode(data['cookies'].get(account['username']))))))
+        tasks_parm.append([account, pickle.loads(base64.b64decode(data['cookies'].get(account['username'])))])
     async with aiofiles.open(config_path, 'w') as fp:
         await fp.write(json.dumps(data, indent=4))
+    for parm in tasks_parm:
+        tasks.append(asyncio.create_task(hang_up(*parm)))
     await asyncio.gather(*tasks)
 
 
