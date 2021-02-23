@@ -226,7 +226,7 @@ async def handle_monthly_card(session: aiohttp.ClientSession, cookies, username:
         cookies.update(response.cookies)
         monthly_card_view_res = await response.text()
     soup = BeautifulSoup(monthly_card_view_res, features="html.parser")
-    monthly_card_form = soup.find(name='form', attrs={'name': 'form1', 'method': 'post', 'action': True})
+    monthly_card_form = soup.find(name='form', attrs={'name': re.compile(r'form\d'), 'method': 'post', 'action': True})
     if monthly_card_form:
         monthly_card_url = URL + '/' + monthly_card_form['action']
         form_hash = monthly_card_form.findChild(name='input')['value']
@@ -237,6 +237,20 @@ async def handle_monthly_card(session: aiohttp.ClientSession, cookies, username:
         logging.warning(
             '{} get monthly card {}, result:{}'.format(username, monthly_card_form.text.strip(),
                                                        monthly_card_res.strip()[:20]))
+
+
+async def get_credit_dict(session: aiohttp.ClientSession, cookies, _: str):
+    home_credit_view_url = URL + '/home.php?mod=spacecp&ac=credit&showcredit=1'
+    async with session.get(home_credit_view_url, headers=HEADERS, cookies=cookies) as response:
+        cookies.update(response.cookies)
+        clock_in_view_res = await response.text()
+    soup = BeautifulSoup(clock_in_view_res, features="html.parser")
+    credit_sum = soup.find(name='ul', class_='creditl mtm bbda cl').find_all(name='li')
+    credit_dict = {}
+    for credit in credit_sum:
+        split_text = re.search(r'\w+: [0-9]+', credit.text)[0].split(':')
+        credit_dict[split_text[0]] = int(split_text[1].strip())
+    return credit_dict
 
 
 async def clock_in(session: aiohttp.ClientSession, cookies, username: str):
@@ -266,20 +280,21 @@ async def hang_up(user_config: dict, cookies: SimpleCookie):
     async with aiohttp.ClientSession() as session:
         if not cookies:
             cookies = await login(session, user_config)
-        async with session.get(URL + "/plugin.php?id=dsu_paulsign:sign", headers=HEADERS, cookies=cookies) as response:
-            cookies.update(response.cookies)
-            if username not in (await response.text()):
-                cookies = await login(session, user_config)
 
         loop_times = 0
+        init_credit_dict = await get_credit_dict(session, cookies, username)
+        logging.info("{} init credit dict:{}".format(username, init_credit_dict))
+        credit_dict = init_credit_dict
         while True:
             await clock_in(session, cookies, username)
             await asyncio.sleep(10)
             await get_level_gift(session, cookies, username)
-            await asyncio.sleep(10)
-            await get_daily_task(session, cookies, 1, username)
-            await asyncio.sleep(10)
-            await get_daily_task(session, cookies, 2, username)
+            if loop_times % 10 == 0:
+                await asyncio.sleep(10)
+                await get_daily_task(session, cookies, 1, username)
+                await asyncio.sleep(10)
+                await get_daily_task(session, cookies, 2, username)
+
             if loop_times % 30 == 0:
                 await asyncio.sleep(10)
                 await lucky_egg_draw(session, cookies, username)
@@ -287,7 +302,15 @@ async def hang_up(user_config: dict, cookies: SimpleCookie):
                 await lucky_wheel_draw(session, cookies, username)
                 await asyncio.sleep(10)
                 await handle_monthly_card(session, cookies, username)
-            await asyncio.sleep(600)
+            await asyncio.sleep(600 - random.randint(0, 100))
+            next_credit_dict = await get_credit_dict(session, cookies, username)
+            credit_add_log_text = ''
+            for k, v in next_credit_dict.items():
+                if v != credit_dict[k]:
+                    credit_add_log_text += '{} add {} '.format(k, v - credit_dict[k])
+            if credit_add_log_text:
+                logging.warning('{} credit modify:{}'.format(username, credit_add_log_text))
+            credit_dict = next_credit_dict
             loop_times += 1
 
 
@@ -299,11 +322,19 @@ async def main(config_path: str, reload: bool):
     if not data.get('cookies'):
         data['cookies'] = {}
     for account in data["accounts"]:
-        if not data['cookies'].get(account['username']) or reload:
-            async with aiohttp.ClientSession() as session:
+        username = account['username']
+        async with aiohttp.ClientSession() as session:
+            if not data['cookies'].get(account['username']) or reload:
                 data['cookies'][account['username']] = base64.b64encode(
                     pickle.dumps(await login(session, account))).decode()
-        tasks_parm.append([account, pickle.loads(base64.b64decode(data['cookies'].get(account['username'])))])
+            cookies = pickle.loads(base64.b64decode(data['cookies'].get(account['username'])))
+            async with session.get(URL + "/plugin.php?id=dsu_paulsign:sign", headers=HEADERS,
+                                   cookies=cookies) as response:
+                cookies.update(response.cookies)
+                if username not in (await response.text()):
+                    cookies = await login(session, account)
+                    data['cookies'][account['username']] = base64.b64encode(pickle.dumps(cookies)).decode()
+        tasks_parm.append([account, cookies])
     async with aiofiles.open(config_path, 'w') as fp:
         await fp.write(json.dumps(data, indent=4))
     for parm in tasks_parm:
