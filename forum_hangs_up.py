@@ -5,6 +5,7 @@ import base64
 import aiohttp
 import aiofiles
 import json
+import time
 import pickle
 import xml.etree.ElementTree as et
 from bs4 import BeautifulSoup
@@ -104,6 +105,7 @@ async def get_level_gift(session: aiohttp.ClientSession, cookies, username: str)
     logging.info('{} start get online gift page'.format(username))
 
     async def get_gift(soup, name, class_):
+        await asyncio.sleep(5)
         for table in soup.find_all(name=name, class_=class_):
             award = table.find(text='领取奖励')
             if award:
@@ -141,6 +143,7 @@ async def get_daily_task(session: aiohttp.ClientSession, cookies, id: int, usern
     soup = BeautifulSoup(task_view_res, features="html.parser")
     task_url = soup.find(name='img', src=True, alt='立即申请')
     if task_url:
+        await asyncio.sleep(5)
         task_url = URL + '/' + task_url.parent['href']
         async with session.get(task_url, headers=HEADERS, cookies=cookies) as response:
             cookies.update(response.cookies)
@@ -152,6 +155,7 @@ async def lucky_egg_draw(session: aiohttp.ClientSession, cookies, username: str)
     async with session.get(draw_egg_page_url, headers=HEADERS, cookies=cookies) as response:
         cookies.update(response.cookies)
         draw_egg_page_res = await response.text()
+    await asyncio.sleep(5)
     soup = BeautifulSoup(draw_egg_page_res, features="html.parser")
     from_hash = soup.find(name='input', attrs={"name": 'formhash', "type": "hidden"})['value']
     draw_egg_num_url = URL + "/plugin.php?id=levegg&m=2&fh={}&{}".format(from_hash, random_uniform())
@@ -185,12 +189,14 @@ async def lucky_wheel_draw(session: aiohttp.ClientSession, cookies, username: st
     async with session.get(draw_wheel_page_url, headers=HEADERS, cookies=cookies) as response:
         cookies.update(response.cookies)
         draw_wheel_page_res = await response.text()
+    await asyncio.sleep(5)
     async with session.get(URL + '/plugin.php?id=levaward:award&doingid=1&mobile=no&hdr=&{}&hook=1&pg=1'.format(
             random_uniform()), headers=HEADERS, cookies=cookies) as response:
         cookies.update(response.cookies)
     soup = BeautifulSoup(draw_wheel_page_res, features="html.parser")
     from_hash = soup.find(name='input', attrs={"name": 'formhash', "type": "hidden"})['value']
     draw_wheel_num_url = URL + "/plugin.php?id=levaward:l&fh={}&m=_awardnum.1&{}".format(from_hash, random_uniform())
+    await asyncio.sleep(5)
     async with session.get(draw_wheel_num_url, headers=HEADERS, cookies=cookies) as response:
         cookies.update(response.cookies)
         draw_wheel_times = int(await response.text())
@@ -219,6 +225,29 @@ async def lucky_wheel_draw(session: aiohttp.ClientSession, cookies, username: st
         logging.info("{} wheel draw num == 0".format(username))
 
 
+async def slot_machine_draw(session: aiohttp.ClientSession, cookies, username: str):
+    slot_machine_view_url = URL + '/plugin.php?id=levpop:levpop'
+    async with session.get(slot_machine_view_url, headers=HEADERS, cookies=cookies) as response:
+        cookies.update(response.cookies)
+        slot_machine_view_res = await response.text()
+    soup = BeautifulSoup(slot_machine_view_res, features="html.parser")
+    await asyncio.sleep(5)
+    slot_times = int(re.search(r'\$\$\("#slotop_infop"\).html\("今日还有 (\d+) 次抽奖机会"\);', slot_machine_view_res)[1])
+    logging.info('{} start slot machine left times {}'.format(username, slot_times))
+    while slot_times:
+        from_hash = soup.find(name='input', attrs={"name": 'formhash', "type": "hidden"})['value']
+        get_slot_machine_url = URL + '/plugin.php?id=levpop&m=1&{}&fh={}&_=1614250823971'.format(random_uniform(),
+                                                                                                 from_hash,
+                                                                                                 int(
+                                                                                                     time.time() * 1000))
+        async with session.get(get_slot_machine_url, headers=HEADERS, cookies=cookies) as response:
+            cookies.update(cookies)
+            get_slot_machine_res = await response.text()
+        logging.warning('{} get slot machine res: {}'.format(username, get_slot_machine_res))
+        slot_times -= 1
+        await asyncio.sleep(10)
+
+
 async def handle_monthly_card(session: aiohttp.ClientSession, cookies, username: str):
     logging.info('{} handle monthly card'.format(username))
     monthly_card_view_url = URL + '/plugin.php?id=yueka'
@@ -228,6 +257,7 @@ async def handle_monthly_card(session: aiohttp.ClientSession, cookies, username:
     soup = BeautifulSoup(monthly_card_view_res, features="html.parser")
     monthly_card_form = soup.find(name='form', attrs={'name': re.compile(r'form\d'), 'method': 'post', 'action': True})
     if monthly_card_form:
+        await asyncio.sleep(5)
         monthly_card_url = URL + '/' + monthly_card_form['action']
         form_hash = monthly_card_form.findChild(name='input')['value']
         async with session.post(monthly_card_url, data={'formhash': form_hash}, headers=HEADERS,
@@ -249,7 +279,7 @@ async def get_credit_dict(session: aiohttp.ClientSession, cookies, _: str):
     credit_dict = {}
     for credit in credit_sum:
         split_text = re.search(r'\w+: [0-9]+', credit.text)[0].split(':')
-        credit_dict[split_text[0]] = int(split_text[1].strip())
+        credit_dict[split_text[0].strip()] = int(split_text[1].strip())
     return credit_dict
 
 
@@ -286,10 +316,11 @@ async def hang_up(user_config: dict, cookies: SimpleCookie):
         logging.info("{} init credit dict:{}".format(username, init_credit_dict))
         credit_dict = init_credit_dict
         while True:
+            await asyncio.sleep(10)
             await clock_in(session, cookies, username)
             await asyncio.sleep(10)
             await get_level_gift(session, cookies, username)
-            if loop_times % 10 == 0:
+            if loop_times % 5 == 0:
                 await asyncio.sleep(10)
                 await get_daily_task(session, cookies, 1, username)
                 await asyncio.sleep(10)
@@ -297,17 +328,19 @@ async def hang_up(user_config: dict, cookies: SimpleCookie):
 
             if loop_times % 30 == 0:
                 await asyncio.sleep(10)
+                await slot_machine_draw(session, cookies, username)
+                await asyncio.sleep(10)
                 await lucky_egg_draw(session, cookies, username)
                 await asyncio.sleep(10)
                 await lucky_wheel_draw(session, cookies, username)
                 await asyncio.sleep(10)
                 await handle_monthly_card(session, cookies, username)
-            await asyncio.sleep(600 - random.randint(0, 100))
+            await asyncio.sleep(600 - random.randint(0, 300))
             next_credit_dict = await get_credit_dict(session, cookies, username)
             credit_add_log_text = ''
             for k, v in next_credit_dict.items():
                 if v != credit_dict[k]:
-                    credit_add_log_text += '{} add {} '.format(k, v - credit_dict[k])
+                    credit_add_log_text += '{}:{};'.format(k, v - credit_dict[k])
             if credit_add_log_text:
                 logging.warning('{} credit modify:{}'.format(username, credit_add_log_text))
             credit_dict = next_credit_dict
@@ -330,10 +363,10 @@ async def main(config_path: str, reload: bool):
             cookies = pickle.loads(base64.b64decode(data['cookies'].get(account['username'])))
             async with session.get(URL + "/plugin.php?id=dsu_paulsign:sign", headers=HEADERS,
                                    cookies=cookies) as response:
-                cookies.update(response.cookies)
                 if username not in (await response.text()):
-                    cookies = await login(session, account)
-                    data['cookies'][account['username']] = base64.b64encode(pickle.dumps(cookies)).decode()
+                    async with aiohttp.ClientSession() as new_session:
+                        cookies = await login(new_session, account)
+                        data['cookies'][account['username']] = base64.b64encode(pickle.dumps(cookies)).decode()
         tasks_parm.append([account, cookies])
     async with aiofiles.open(config_path, 'w') as fp:
         await fp.write(json.dumps(data, indent=4))
