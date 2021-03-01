@@ -248,6 +248,31 @@ async def slot_machine_draw(session: aiohttp.ClientSession, cookies, username: s
         await asyncio.sleep(10)
 
 
+async def get_miner_output(session: aiohttp.ClientSession, cookies, username: str):
+    miner_view_url = URL + '/plugin.php?id=miner:miner'
+    async with session.get(miner_view_url, headers=HEADERS, cookies=cookies) as response:
+        cookies.update(response.cookies)
+        miner_view_res = await response.text()
+    await asyncio.sleep(5)
+    soup = BeautifulSoup(miner_view_res, features="html.parser")
+    miner_output_url = URL + '/' + soup.find(name='a', class_='xi1 y')['href']
+    async with session.get(miner_output_url, headers=HEADERS, cookies=cookies) as response:
+        cookies.update(response.cookies)
+        miner_output_res = await response.text()
+
+    if '您当前共有可领收益' in miner_output_res:
+        await asyncio.sleep(5)
+        soup = BeautifulSoup(et.fromstring(miner_output_res).text, features="html.parser")
+        miner_get_output_url = URL + '/' + soup.find(name='form', id='getoutput')['action']
+        form_hash = soup.find(name='input', attrs={'type': 'hidden', 'name': 'formhash'})['value']
+        async with session.post(miner_get_output_url, data={'formhash': form_hash, 'getoutputsubmit': True}, headers=HEADERS,
+                                cookies=cookies) as response:
+            cookies.update(response.cookies)
+            miner_get_output_res = await response.text()
+
+        logging.warning('{} get miner res:{}'.format(username, miner_get_output_res[:40]))
+
+
 async def handle_monthly_card(session: aiohttp.ClientSession, cookies, username: str):
     logging.info('{} handle monthly card'.format(username))
     monthly_card_view_url = URL + '/plugin.php?id=yueka'
@@ -328,13 +353,15 @@ async def hang_up(user_config: dict, cookies: SimpleCookie):
 
             if loop_times % 30 == 0:
                 await asyncio.sleep(10)
+                await handle_monthly_card(session, cookies, username)
+                await asyncio.sleep(10)
+                await get_miner_output(session, cookies, username)
+                await asyncio.sleep(10)
                 await slot_machine_draw(session, cookies, username)
                 await asyncio.sleep(10)
                 await lucky_egg_draw(session, cookies, username)
                 await asyncio.sleep(10)
                 await lucky_wheel_draw(session, cookies, username)
-                await asyncio.sleep(10)
-                await handle_monthly_card(session, cookies, username)
             await asyncio.sleep(600 - random.randint(0, 300))
             next_credit_dict = await get_credit_dict(session, cookies, username)
             credit_add_log_text = ''
